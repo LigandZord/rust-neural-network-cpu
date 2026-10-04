@@ -1,0 +1,18 @@
+[package]
+name = "nn-kernels"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dev-dependencies]
+criterion = "0.5"
+npyz = "0.8"
+
+[[bench]]
+name = "activation_bench"
+harness = false
+
+[[bench]]
+name = "linear_bench"
+harness = false

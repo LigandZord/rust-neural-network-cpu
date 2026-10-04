@@ -1,0 +1,5 @@
+/target
+python/venv/
+__pycache__/
+testdata/*.npy
+CLAUDE.md
