@@ -1,15 +1,17 @@
-"""Benchmark PyTorch's CPU SiLU as the baseline for the naive Rust kernel.
+"""Benchmark PyTorch's CPU SiLU across thread counts.
 
 Matches benches/activation_bench.rs: same element count, in-place op, and
 setup (tensor clone) excluded from the timed region.
 """
+import os
 import time
 import torch
 import torch.nn.functional as F
 
-SIZE = 1 << 20
+SIZE = int(os.environ.get("SIZE", 1 << 20))
 WARMUP = 10
-ITERS = 100
+ITERS = 100 if SIZE <= (1 << 20) else 20
+THREADS = [int(os.environ["THREADS"])] if "THREADS" in os.environ else [1, 2, 4, 8, 11, 22]
 
 
 def bench(label: str) -> None:
@@ -34,10 +36,6 @@ def bench(label: str) -> None:
 if __name__ == "__main__":
     print(f"SiLU on {SIZE:,} f32 elements, {ITERS} iters (after {WARMUP} warmup)\n")
 
-    default_threads = torch.get_num_threads()
-
-    torch.set_num_threads(1)
-    bench("1 thread (vs naive)")
-
-    torch.set_num_threads(default_threads)
-    bench(f"{default_threads} threads (default)")
+    for n in THREADS:
+        torch.set_num_threads(n)
+        bench(f"{n} threads")

@@ -1,5 +1,6 @@
 // Activation kernels. Progression: naive -> cache/layout -> SIMD (AVX2+FMA) -> threaded (rayon).
 use std::arch::x86_64::*;
+use rayon::prelude::*;
 
 pub fn silu_naive(input: &mut [f32]) {
     for v in input.iter_mut() {
@@ -75,6 +76,23 @@ unsafe fn silu_calc(x : __m256) -> __m256 {
     let minus_one_vec = _mm256_set1_ps(-1.0);
     _mm256_div_ps(x,_mm256_add_ps(_mm256_set1_ps(1.0),exp_avx2_f32(_mm256_mul_ps(minus_one_vec,x))))
 
+}
+
+const BLOCK: usize = 64 * 1024;
+
+pub fn silu_simd_rayon(input: &mut [f32]) {
+    silu_simd_rayon_blocked(input, BLOCK)
+}
+
+pub fn silu_simd_rayon_blocked(input: &mut [f32], block: usize) {
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        input.par_chunks_mut(block)
+        .for_each(|x| unsafe {
+            silu_avx2(x)
+        })
+    } else {
+        silu_naive(input)
+    }
 }
 
 #[cfg(test)]
@@ -160,14 +178,13 @@ mod tests {
         (actual - expected).abs() <= atol + rtol * expected.abs()
     }
 
-    #[test]
-    fn silu_simd_matches_pytorch_fixtures() {
+    fn assert_matches_pytorch(kernel: fn(&mut [f32]), name: &str) {
         let input = load_npy_f32("testdata/silu_input.npy");
         let expected = load_npy_f32("testdata/silu_expected.npy");
         assert_eq!(input.len(), expected.len());
 
         let mut actual = input.clone();
-        silu_simd(&mut actual);
+        kernel(&mut actual);
 
         let atol = 1e-4;
         let rtol = 1e-3;
@@ -185,7 +202,7 @@ mod tests {
             }
         }
         println!(
-            "silu_simd vs PyTorch ({} fixtures): max abs error = {:e} at x = {}, {} outside tolerance",
+            "{name} vs PyTorch ({} fixtures): max abs error = {:e} at x = {}, {} outside tolerance",
             input.len(),
             max_abs_err,
             worst_x,
@@ -193,8 +210,18 @@ mod tests {
         );
         assert_eq!(
             num_failures, 0,
-            "{num_failures} of {} silu_simd outputs fell outside atol={atol}, rtol={rtol} of PyTorch",
+            "{num_failures} of {} {name} outputs fell outside atol={atol}, rtol={rtol} of PyTorch",
             input.len()
         );
+    }
+
+    #[test]
+    fn silu_simd_matches_pytorch_fixtures() {
+        assert_matches_pytorch(silu_simd, "silu_simd");
+    }
+
+    #[test]
+    fn silu_simd_rayon_matches_pytorch_fixtures() {
+        assert_matches_pytorch(silu_simd_rayon, "silu_simd_rayon");
     }
 }
